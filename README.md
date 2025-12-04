@@ -44,8 +44,8 @@ git clone https://github.com/baaivision/DIVA.git
 cd DIVA
 mkdir -p outputs logs datasets pretrained_weights/CLIP pretrained_weights/SD
 
-conda create -n diva python=3.9
-conda activate diva
+conda create -n diffusionclip python=3.9
+conda activate diffusionclip
 pip install -r requirements.txt
 ```
 Core packages: 
