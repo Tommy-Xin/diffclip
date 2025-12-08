@@ -280,11 +280,13 @@ def official_evaluation(clip_model, config):
         clip_model.eval()
 
         # models
-        data = "dataset/MMVP_VLM"
+        data = "datasets/MMVP_VLM"
         if config.clip_image_size == 224:
-            base_model = "pretrained_weights/CLIP/ViT-L-14.pt"
+            #base_model = "pretrained_weights/CLIP/ViT-L-14.pt"
+            base_model = "ViT-L/14"
         if config.clip_image_size == 336:
-            base_model = "pretrained_weights/CLIP/ViT-L-14-336px.pt"
+            #base_model = "pretrained_weights/CLIP/ViT-L-14-336px.pt"
+            base_model = "ViT-L/14@336px"
         clip_model_device = next(clip_model.parameters()).device
         clip_model_name = base_model.split('/')[-1].split('.')[0]
         results_openai = {f'openai-{clip_model_name}': benchmark_model(base_model, clip_model, data, clip_model_device)}

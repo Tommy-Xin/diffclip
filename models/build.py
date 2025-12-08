@@ -3,50 +3,15 @@ from diffusers import AutoencoderKL, UNet2DConditionModel, StableDiffusionPipeli
 from transformers import CLIPTextModel, CLIPTokenizer
 from .utils import VQVAEUnNormalize
 from .CLIP_bank import OpenAICLIP, DFN, SigLIP, MetaCLIP
-
+import os
 def load_sd_model(config):
     """Load Stable Diffusion model"""
     dtype = torch.float32
     image_renormalizer = VQVAEUnNormalize(
         mean=config.input.mean, std=config.input.std
     )
-    if config.model.sd_version == '1-4':
-        if config.model.use_flash:
-            model_id = "CompVis/stable-diffusion-v1-4"
-            scheduler = EulerDiscreteScheduler.from_pretrained(
-                model_id, subfolder="scheduler"
-            )
-            pipe = StableDiffusionPipeline.from_pretrained(
-                model_id, scheduler=scheduler, torch_dtype=dtype
-            ).cuda()
-            pipe.enable_xformers_memory_efficient_attention()
-            vae = pipe.vae.cuda()
-            tokenizer = pipe.tokenizer
-            text_encoder = pipe.text_encoder.cuda()
-            unet = pipe.unet.cuda()
-        else:
-            vae = AutoencoderKL.from_pretrained(
-                f"CompVis/stable-diffusion-v{config.model.sd_version}",
-                subfolder="vae", torch_dtype=dtype
-            ).cuda()
-            tokenizer = CLIPTokenizer.from_pretrained(
-                "/share/project/wangwenxuan/projects/Overcome_VS/MMVP_Test/openai/clip-vit-large-patch14"
-            )
-            text_encoder = CLIPTextModel.from_pretrained(
-                "/share/project/wangwenxuan/projects/Overcome_VS/MMVP_Test/openai/clip-vit-large-patch14", torch_dtype=dtype
-            ).cuda()
-            unet = UNet2DConditionModel.from_pretrained(
-                f"CompVis/stable-diffusion-v{config.model.sd_version}",
-                subfolder="unet", torch_dtype=dtype
-            ).cuda()
-            scheduler_config = get_scheduler_config(config)
-            scheduler = DDPMScheduler(
-                num_train_timesteps=scheduler_config['num_train_timesteps'],
-                beta_start=scheduler_config['beta_start'],
-                beta_end=scheduler_config['beta_end'],
-                beta_schedule=scheduler_config['beta_schedule']
-            )
-    elif config.model.sd_version == '2-1':
+   
+    if config.model.sd_version == '2-1':
         
         model_id = "pretrained_weights/SD/stable-diffusion-2-1-base"
         print(f'model_id:{model_id}')

@@ -1,3 +1,4 @@
+# the replacement for the clip model.py in the clip package
 from collections import OrderedDict
 from typing import Tuple, Union
 
