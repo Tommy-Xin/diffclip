@@ -20,5 +20,5 @@ assets/
 # Misc
 *.json
 *.whl
-
+Prediction_Results_OpenAICLIP
 CLIP
