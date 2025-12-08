@@ -1,0 +1,22 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Large data / datasets
+datasets/
+Prediction_Results_OpenAICLIP/
+
+# Model weights
+pretrained_weights/
+
+# Logs & outputs
+logs/
+outputs/
+wandb/
+
+# Assets
+assets/
+
+# Misc
+*.json
+*.whl
