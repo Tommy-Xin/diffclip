@@ -73,6 +73,7 @@ def get_scheduler_config(config):
 
     return schedule_config
 
+
 def load_clip_model_OpenAICLIP(config):
 
     class_model = OpenAICLIP(config)
