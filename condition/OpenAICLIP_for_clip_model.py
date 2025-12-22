@@ -244,6 +244,7 @@ class VisionTransformer(nn.Module):
 
 
         # DIVA's condition for OpenAI-CLIP(vit-l/224 & vit-l/336)
+        # My proposal： based on the insight in DIVA, we can use the effictive token removal strategy
         class_token = x[:, 0, :].unsqueeze(1)
         remaining_tokens = x[:, 1:, :]
         num_seleted_tokens = int(77-1)
