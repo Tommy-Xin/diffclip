@@ -29,6 +29,24 @@ def ratio_sample(ratio, aspect_ratios=ASPECT_RATIO_1024):
         closest_ratio = min(aspect_ratios.keys(), key=lambda r: abs(float(r) - ratio))
         return closest_ratio
 
+def subsample_streaming(data, data_args, default_ratio=1.0):
+    """
+    for subsample_streaming, we can use the following code:
+    针对 streaming 数据集的下采样工具。
+    - 优先读取 data_args.sample_ratio；若不存在则使用 default_ratio。
+    - ratio < 1 时按随机概率保留指定比例；每次迭代都会重新随机，便于“随机取 25%”。
+    例：ratio=0.25 -> 每个 epoch 约保留 25% 样本，顺序仍由上游 shuffle 决定。
+    """
+    ratio = getattr(data_args, "sample_ratio", default_ratio)
+    if ratio is None or ratio >= 1.0:
+        return data
+    def keep(*_):
+        # 纯随机保留，每次遍历都会重新采样
+        return random.random() < ratio
+
+    data = data.filter(keep, with_indices=False)
+    return data
+
 def find_image(sample):
     for suffix in DEFAULT_IMAGE_FILE_SUFFIX:
         if suffix in sample.keys():
@@ -43,6 +61,23 @@ def get_cc3m_wds_dataset_and_collator(data_args, model_args):
 
     data = load_dataset("webdataset", data_dir=data_args.dataset_path, split="train", streaming=True)
     data = data.shuffle(buffer_size=2_000, seed=data_args.seed)
+    
+    # Use take() to read a subset of data if specified
+    # Priority: max_train_samples > sample_ratio
+    # if hasattr(data_args, 'max_train_samples') and data_args.max_train_samples is not None:
+    #     # Use max_train_samples if specified (fixed number of samples)
+    #     data = data.take(data_args.max_train_samples)
+    #     print(f"Using take() to read {data_args.max_train_samples} samples")
+    # elif hasattr(data_args, 'sample_ratio') and data_args.sample_ratio is not None and data_args.sample_ratio < 1.0:
+    #     # If sample_ratio is specified and < 1.0, estimate the number of samples to take
+    #     # Note: This is an approximation since we don't know the total dataset size in streaming mode
+    #     # For CC3M, approximate total is ~3M samples, but this may vary
+    #     estimated_total = 3_000_000  # Approximate CC3M dataset size
+    #     num_samples = int(estimated_total * data_args.sample_ratio)
+    #     data = data.take(num_samples)
+    #     print(f"Using take() to read {num_samples} samples ({data_args.sample_ratio*100:.1f}% of estimated {estimated_total:,} total)")
+    # If neither is specified, use the old subsample_streaming method (commented out by default)
+    # data = subsample_streaming(data, data_args, default_ratio=1.0)
 
     def decode(sample, img_processor):
         sample = find_image(sample)
@@ -64,6 +99,7 @@ def get_wds_dataset_and_collator(data_args, model_args):
     train_processor = image_transform(img_size, is_train=True) if model_args.fixed_image_size else image_transform
     data = load_dataset("webdataset", data_dir=data_args.dataset_path, split="train", streaming=True)
     data = data.shuffle(buffer_size=2_000, seed=data_args.seed)
+    data = subsample_streaming(data, data_args, default_ratio=1.0)
 
     def decode(sample, img_processor):
         sample = find_image(sample)
@@ -90,6 +126,7 @@ def get_wds_dataset_and_collator_arbitrary_resolution(data_args, model_args):
 
     data = load_dataset("webdataset", data_dir=data_args.dataset_path, split="train", streaming=True)
     data = data.shuffle(buffer_size=2_000, seed=data_args.seed)
+    data = subsample_streaming(data, data_args, default_ratio=1.0)
 
     def decode_sample(sample, img_processor):
         sample = find_image(sample)
@@ -119,6 +156,7 @@ def dataset_test(data_args, model_args):
     DEFAULT_IMAGE_FILE_SUFFIX = ['jpg', '0.jpg', '0.png', 'png', 'jpeg', '0.jpeg', 'webp']
     data = load_dataset("webdataset", data_dir="/share/project/datasets/laion-high-resolution/*/*.tar", split="train", streaming=True)
     data = data.shuffle(buffer_size=2_000, seed=1)
+    data = subsample_streaming(data, data_args, default_ratio=1.0)
     
     data_iter = iter(data)
 

@@ -119,17 +119,30 @@ def main():
     data_args.seed = training_args.seed
     training_args.model_type = "image"
 
-    from models.SD_with_OpenAICLIP import SDModel
+    # 使用 FATR 版本的模型
+    from models.SD_with_OpenAICLIPFATR import SDModelFATR
     from config import SDConfig
 
     config = SDConfig()
     config.tta.gradient_descent.train_steps = training_args.train_steps
     config.visual_pattern = training_args.visual_pattern
     config.clip_image_size = training_args.clip_image_size
-    model = SDModel(config)
+    
+    # 添加 FATR 参数（如果配置中有的话）
+    if hasattr(training_args, 'fatr_target_num_tokens'):
+        config.fatr_target_num_tokens = training_args.fatr_target_num_tokens
+    if hasattr(training_args, 'fatr_tau'):
+        config.fatr_tau = training_args.fatr_tau
+    if hasattr(training_args, 'fatr_w'):
+        config.fatr_w = training_args.fatr_w
+    
+    # 使用 FATR 版本的模型
+    model = SDModelFATR(config)
     
     # print model parameters
     logger.info(f"{str(model)}")
+    logger.info(f"Using FATR with target_num_tokens={getattr(config, 'fatr_target_num_tokens', 77)}, "
+                f"tau={getattr(config, 'fatr_tau', 0.25)}, w={getattr(config, 'fatr_w', 1)}")
     model.cuda()
 
     from data import get_cc3m_wds_dataset_and_collator
@@ -165,7 +178,7 @@ def main():
 
     # Evaluation
     if training_args.local_rank == 0:
-        print("CLIP's Performance on MMVP-VLM —— Before Generative Fine-tuning")
+        print("CLIP's Performance on MMVP-VLM —— Before Generative Fine-tuning (FATR)")
         results_before = official_evaluation(model.class_model.model, config)
         print(results_before)
 
@@ -184,12 +197,12 @@ def main():
         
     # Evaluation
     if training_args.local_rank == 0:
-        print("CLIP's Performance on MMVP-VLM —— After Generative Fine-tuning")
-        model_weight_save_path = os.path.join(training_args.output_dir, 'CLIP_after_GenFT.pth')
+        print("CLIP's Performance on MMVP-VLM —— After Generative Fine-tuning (FATR)")
+        model_weight_save_path = os.path.join(training_args.output_dir, 'CLIP_after_GenFT_FATR.pth')
         torch.save(trainer.model.state_dict(), model_weight_save_path)
         results_final_after = official_evaluation(trainer.model.class_model.model, config)
         print(results_final_after)
-        save_results(results_before, results_final_after, output_dir=training_args.output_dir)
+        save_results(results_before, results_final_after, output_dir=training_args.output_dir, filename='pred_result_FATR.json')
 
 
 def benchmark_model(base_model, model, benchmark_dir, device = "cpu"):
@@ -198,7 +211,7 @@ def benchmark_model(base_model, model, benchmark_dir, device = "cpu"):
     image_dir = os.path.join(benchmark_dir, 'MLLM_VLM_Images')
     csv_file = os.path.join(benchmark_dir, 'Questions.csv')
 
-    csv_outfile = open('Prediction_Results_OpenAICLIP', 'w', newline='')
+    csv_outfile = open('Prediction_Results_OpenAICLIPFATR', 'w', newline='')
     csv_writer = csv.writer(csv_outfile)
     csv_writer.writerow(['qid1', 'qid2', 'pred1', 'pred2', 'gt1', 'gt2', 'q1score', 'q2score'])  # header
 
@@ -292,7 +305,7 @@ def official_evaluation(clip_model, config):
             base_model = "ViT-L/14@336px"
         clip_model_device = next(clip_model.parameters()).device
         clip_model_name = base_model.split('/')[-1].split('.')[0]
-        results_openai = {f'openai-{clip_model_name}': benchmark_model(base_model, clip_model, data, clip_model_device)}
+        results_openai = {f'openai-{clip_model_name}-FATR': benchmark_model(base_model, clip_model, data, clip_model_device)}
 
         # Merge results
         results = {**results_openai}
@@ -322,3 +335,4 @@ def save_results(results_before, results_final_after, output_dir, filename='pred
 
 if __name__ == "__main__":
     main()
+

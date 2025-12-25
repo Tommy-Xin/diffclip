@@ -7,6 +7,13 @@ class DataTrainingArguments:
 
     dataset_path: str = "dataset_path"
 
+    sample_ratio: Optional[float] = field(
+        default=1.0,
+        metadata={
+            "help": "large scale streaming dataset subsampling ratio，0<ratio<1"
+        },
+    )
+
     arbitrary_resolution: Optional[bool] = field(
         default=False,
         metadata={

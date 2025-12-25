@@ -2,7 +2,7 @@ import torch
 from diffusers import AutoencoderKL, UNet2DConditionModel, StableDiffusionPipeline, DDPMScheduler, EulerDiscreteScheduler
 from transformers import CLIPTextModel, CLIPTokenizer
 from .utils import VQVAEUnNormalize
-from .CLIP_bank import OpenAICLIP, DFN, SigLIP, MetaCLIP
+from .CLIP_bank import OpenAICLIP, OpenAICLIPFATR, DFN, SigLIP, MetaCLIP
 import os
 def load_sd_model(config):
     """Load Stable Diffusion model"""
@@ -77,6 +77,21 @@ def get_scheduler_config(config):
 def load_clip_model_OpenAICLIP(config):
 
     class_model = OpenAICLIP(config)
+    class_model.to(torch.float32)
+
+    return class_model
+
+
+def load_clip_model_OpenAICLIPFATR(config):
+    """
+    Load OpenAI CLIP model with FATR (Frequency-Aware Token Reduction).
+    
+    FATR parameters can be set in config:
+    - config.fatr_target_num_tokens: target number of tokens (default: 77)
+    - config.fatr_tau: reduction ratio (default: 0.25)
+    - config.fatr_w: number of local DC groups (default: 1, global DC)
+    """
+    class_model = OpenAICLIPFATR(config)
     class_model.to(torch.float32)
 
     return class_model
