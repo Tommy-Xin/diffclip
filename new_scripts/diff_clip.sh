@@ -10,10 +10,23 @@ export NCCL_P2P_DISABLE=1
 MASTER_ADDR=$(hostname -I | awk '{print $1}')
 MASTER_PORT=12345
 
-run_name=diff_clip_8gpus_seed99999_diffusionclip2
-num_steps=4600
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun \
-    --nproc_per_node=8 \
+run_name=diff_clip_wtoken_reduction_2gpus_seed9999_diffusionclip2
+
+# Base training steps for 100% dataset
+base_steps=4600
+# Dataset ratio (0.25 = 25%, 0.5 = 50%, 0.75 = 75%, 1.0 = 100%)
+dataset_ratio=0.5
+
+# Calculate actual training steps based on dataset ratio
+# This ensures training time scales with dataset size
+num_steps=$(python3 -c "import sys; print(int($base_steps * $dataset_ratio))")
+
+echo "Base steps: $base_steps"
+echo "Dataset ratio: $dataset_ratio"
+echo "Calculated steps: $num_steps"
+
+CUDA_VISIBLE_DEVICES=2,3 torchrun \
+    --nproc_per_node=2 \
     --nnodes=1 \
     --node_rank=0 \
     --master_addr=${MASTER_ADDR} \
@@ -25,7 +38,8 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun \
     --image_size 512 \
     --fixed_image_size False \
     --dataset_path datasets/cc3m/ \
-    --output_dir ./outputs/100%/$run_name \
+    --dataset_ratio $dataset_ratio \
+    --output_dir ./outputs/50%/$run_name \
     --overwrite_output_dir False \
     --remove_unused_columns False \
     --do_train \
@@ -40,7 +54,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun \
     --per_device_train_batch_size 16 \
     --logging_strategy steps \
     --logging_steps 50 \
-    --gradient_accumulation_steps 5 \
+    --gradient_accumulation_steps 20 \
     --save_strategy steps \
     --save_steps 1000 \
     --save_total_limit 1 \
@@ -50,4 +64,4 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun \
     --enable_flash True \
     --lr_scheduler_type cosine \
     --seed 9999\
-    --accelerator_config accelerator.json > ./logs/100%/debug_$run_name.log 
+    --accelerator_config accelerator.json > ./logs/50%/debug_$run_name.log 
