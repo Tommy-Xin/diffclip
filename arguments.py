@@ -14,6 +14,13 @@ class DataTrainingArguments:
         },
     )
 
+    dataset_ratio: Optional[float] = field(
+        default=1.0,
+        metadata={
+            "help": "数据集文件读取比例，从数据集文件夹中选择对应比例的tar文件 (0.25, 0.5, 0.75, 1.0)"
+        },
+    )
+
     arbitrary_resolution: Optional[bool] = field(
         default=False,
         metadata={

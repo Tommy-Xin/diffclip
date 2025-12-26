@@ -2,8 +2,10 @@ import copy
 import io
 import os
 import json
+import glob
+import logging
 from functools import partial
-from typing import Sequence, Dict, Union, Tuple
+from typing import Sequence, Dict, Union, Tuple, Optional, List
 from dataclasses import dataclass
 import numpy as np
 from einops import rearrange
@@ -17,6 +19,10 @@ from torchvision import transforms
 
 from .constants import ASPECT_RATIO_256, ASPECT_RATIO_512, ASPECT_RATIO_1024, DEFAULT_IMAGE_FILE_SUFFIX
 from .transform import image_transform, image_transform_original_resolution, image_transform_original_resolution_test
+
+logger = logging.getLogger(__name__)
+# Also use the main logger to ensure visibility in training logs
+_main_logger = logging.getLogger("__main__")
 
 
 aspect_ratio_database = {
@@ -54,13 +60,115 @@ def find_image(sample):
             break
     return sample
 
+def select_dataset_files_by_ratio(dataset_path: str, dataset_ratio: float = 1.0, seed: int = 42) -> Union[str, List[str]]:
+    """
+    根据指定比例从数据集文件夹中选择tar文件。
+    
+    Args:
+        dataset_path: 数据集路径（目录或包含通配符的路径）
+        dataset_ratio: 数据集比例，支持 0.25, 0.5, 0.75, 1.0
+        seed: 随机种子，用于保证每次选择相同的文件
+        
+    Returns:
+        如果ratio=1.0，返回原始路径字符串；否则返回选中的tar文件列表
+    """
+    if dataset_ratio is None or dataset_ratio >= 1.0:
+        return dataset_path
+    
+    # 处理通配符路径
+    if '*' in dataset_path:
+        # 使用glob查找所有匹配的tar文件
+        tar_files = sorted(glob.glob(dataset_path))
+        if not tar_files:
+            # 如果通配符匹配失败，尝试在目录中查找所有tar文件
+            base_dir = os.path.dirname(dataset_path.split('*')[0])
+            if os.path.exists(base_dir):
+                tar_files = sorted(glob.glob(os.path.join(base_dir, "*.tar")))
+    else:
+        # 如果是目录路径，查找目录中所有tar文件
+        if os.path.isdir(dataset_path):
+            tar_files = sorted(glob.glob(os.path.join(dataset_path, "*.tar")))
+            # 如果目录中没有tar文件，尝试递归查找
+            if not tar_files:
+                tar_files = sorted(glob.glob(os.path.join(dataset_path, "**", "*.tar"), recursive=True))
+        else:
+            # 如果是单个文件路径
+            if dataset_path.endswith('.tar') and os.path.exists(dataset_path):
+                tar_files = [dataset_path]
+            else:
+                logger.warning(f"Could not find tar files, using original path: {dataset_path}")
+                return dataset_path
+    
+    if not tar_files:
+        logger.warning(f"No tar files found in {dataset_path}, using original path")
+        return dataset_path
+    
+    # 使用固定种子随机选择指定比例的文件
+    random.seed(seed)
+    num_files_to_select = max(1, int(len(tar_files) * dataset_ratio))
+    selected_files = random.sample(tar_files, num_files_to_select)
+    selected_files = sorted(selected_files)  # 排序以保持一致性
+    
+    # Use logger to output information to training logs
+    msg = f"Dataset file selection: selected {len(selected_files)} out of {len(tar_files)} files ({dataset_ratio*100:.1f}%)"
+    logger.info(msg)
+    _main_logger.info(msg)
+    msg = f"Dataset path: {dataset_path}"
+    logger.info(msg)
+    _main_logger.info(msg)
+    msg = f"Selected files: {len(selected_files)} / {len(tar_files)}"
+    logger.info(msg)
+    _main_logger.info(msg)
+    if len(selected_files) <= 10:
+        # If file count is small, list all selected files
+        for i, fname in enumerate(selected_files, 1):
+            msg = f"  File {i}: {os.path.basename(fname)}"
+            logger.info(msg)
+            _main_logger.info(msg)
+    else:
+        # If file count is large, only show first 5 and last 5
+        for i, fname in enumerate(selected_files[:5], 1):
+            msg = f"  File {i}: {os.path.basename(fname)}"
+            logger.info(msg)
+            _main_logger.info(msg)
+        msg = f"  ... (and {len(selected_files) - 10} more files) ..."
+        logger.info(msg)
+        _main_logger.info(msg)
+        for i, fname in enumerate(selected_files[-5:], len(selected_files) - 4):
+            msg = f"  File {i}: {os.path.basename(fname)}"
+            logger.info(msg)
+            _main_logger.info(msg)
+    
+    return selected_files
+
 def get_cc3m_wds_dataset_and_collator(data_args, model_args):
     img_size = model_args.image_size
     train_processor = image_transform(img_size, is_train=True)
     val_processor = image_transform(img_size, is_train=False)
 
-    data = load_dataset("webdataset", data_dir=data_args.dataset_path, split="train", streaming=True)
+    # 根据dataset_ratio选择tar文件
+    dataset_ratio = getattr(data_args, 'dataset_ratio', 1.0)
+    msg = f"Loading dataset from: {data_args.dataset_path}, dataset ratio: {dataset_ratio}"
+    logger.info(msg)
+    _main_logger.info(msg)
+    selected_files = select_dataset_files_by_ratio(data_args.dataset_path, dataset_ratio, seed=data_args.seed)
+    
+    if isinstance(selected_files, list):
+        # 如果返回的是文件列表，使用data_files参数
+        msg = f"Loading dataset with {len(selected_files)} tar files"
+        logger.info(msg)
+        _main_logger.info(msg)
+        data = load_dataset("webdataset", data_files=selected_files, split="train", streaming=True)
+    else:
+        # 如果返回的是路径字符串，使用data_dir参数
+        msg = f"Loading dataset using full dataset path: {selected_files}"
+        logger.info(msg)
+        _main_logger.info(msg)
+        data = load_dataset("webdataset", data_dir=selected_files, split="train", streaming=True)
     data = data.shuffle(buffer_size=2_000, seed=data_args.seed)
+    msg = "Dataset loading completed"
+    logger.info(msg)
+    _main_logger.info(msg)
     
     # Use take() to read a subset of data if specified
     # Priority: max_train_samples > sample_ratio
@@ -97,9 +205,32 @@ def get_wds_dataset_and_collator(data_args, model_args):
     img_size = model_args.image_size
 
     train_processor = image_transform(img_size, is_train=True) if model_args.fixed_image_size else image_transform
-    data = load_dataset("webdataset", data_dir=data_args.dataset_path, split="train", streaming=True)
+    
+    # 根据dataset_ratio选择tar文件
+    dataset_ratio = getattr(data_args, 'dataset_ratio', 1.0)
+    msg = f"Loading dataset from: {data_args.dataset_path}, dataset ratio: {dataset_ratio}"
+    logger.info(msg)
+    _main_logger.info(msg)
+    selected_files = select_dataset_files_by_ratio(data_args.dataset_path, dataset_ratio, seed=data_args.seed)
+    
+    if isinstance(selected_files, list):
+        # 如果返回的是文件列表，使用data_files参数
+        msg = f"Loading dataset with {len(selected_files)} tar files"
+        logger.info(msg)
+        _main_logger.info(msg)
+        data = load_dataset("webdataset", data_files=selected_files, split="train", streaming=True)
+    else:
+        # 如果返回的是路径字符串，使用data_dir参数
+        msg = f"Loading dataset using full dataset path: {selected_files}"
+        logger.info(msg)
+        _main_logger.info(msg)
+        data = load_dataset("webdataset", data_dir=selected_files, split="train", streaming=True)
     data = data.shuffle(buffer_size=2_000, seed=data_args.seed)
     data = subsample_streaming(data, data_args, default_ratio=1.0)
+    msg = "Dataset loading completed"
+    logger.info(msg)
+    _main_logger.info(msg)
+    logger.info("Dataset loading completed")
 
     def decode(sample, img_processor):
         sample = find_image(sample)
@@ -124,9 +255,30 @@ def get_wds_dataset_and_collator(data_args, model_args):
 
 def get_wds_dataset_and_collator_arbitrary_resolution(data_args, model_args):
 
-    data = load_dataset("webdataset", data_dir=data_args.dataset_path, split="train", streaming=True)
+    # 根据dataset_ratio选择tar文件
+    dataset_ratio = getattr(data_args, 'dataset_ratio', 1.0)
+    msg = f"Loading dataset from: {data_args.dataset_path}, dataset ratio: {dataset_ratio}"
+    logger.info(msg)
+    _main_logger.info(msg)
+    selected_files = select_dataset_files_by_ratio(data_args.dataset_path, dataset_ratio, seed=data_args.seed)
+    
+    if isinstance(selected_files, list):
+        # 如果返回的是文件列表，使用data_files参数
+        msg = f"Loading dataset with {len(selected_files)} tar files"
+        logger.info(msg)
+        _main_logger.info(msg)
+        data = load_dataset("webdataset", data_files=selected_files, split="train", streaming=True)
+    else:
+        # 如果返回的是路径字符串，使用data_dir参数
+        msg = f"Loading dataset using full dataset path: {selected_files}"
+        logger.info(msg)
+        _main_logger.info(msg)
+        data = load_dataset("webdataset", data_dir=selected_files, split="train", streaming=True)
     data = data.shuffle(buffer_size=2_000, seed=data_args.seed)
     data = subsample_streaming(data, data_args, default_ratio=1.0)
+    msg = "Dataset loading completed"
+    logger.info(msg)
+    _main_logger.info(msg)
 
     def decode_sample(sample, img_processor):
         sample = find_image(sample)
